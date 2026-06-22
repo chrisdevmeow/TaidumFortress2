@@ -92,13 +92,16 @@ let playerModel = null;
 let mapModel = null;
 let playerHeight = 1.6;
 const playerSpeed = 4.0;
-const gravity = -25;
-const jumpSpeed = 6.0;
+const gravity = -20;
+const jumpSpeed = 5.5;
 let velocity = new THREE.Vector3(0, 0, 0);
 let onGround = false;
 let pitch = 0, yaw = 0;
 const euler = new THREE.Euler(0, 0, 0, 'YXZ');
-const collidableObjects = [];
+
+// --- COLLISION DATA (trimesh) ---
+let collisionTriangles = [];
+let collisionBVH = null;
 
 // --- HARDCODED PATHS ---
 const PLAYER_URL = 'player.glb';
@@ -155,7 +158,6 @@ function loadPlayer() {
     scene.add(playerModel);
     debug('✅ Player added to scene');
     setProgress(100);
-    updateCollidables();
     if (mapModel) spawnPlayerAtMapCenter();
     camera.position.set(0, playerHeight * 1.5, playerHeight * 3);
   }, (xhr) => {
@@ -191,7 +193,10 @@ function loadMap() {
     scene.add(mapModel);
     debug('✅ Map added to scene');
     setProgress(100);
-    updateCollidables();
+    
+    // --- BUILD TRIMESH COLLISION ---
+    buildTrimeshCollision(mapModel);
+    
     const box = new THREE.Box3().setFromObject(mapModel);
     const center = new THREE.Vector3();
     box.getCenter(center);
@@ -210,6 +215,40 @@ function loadMap() {
     buildFallbackMap();
     setProgress(100);
   });
+}
+
+function buildTrimeshCollision(model) {
+  collisionTriangles = [];
+  const tempVec = new THREE.Vector3();
+  const tri = new THREE.Triangle();
+  
+  model.traverse(child => {
+    if (child.isMesh) {
+      const geo = child.geometry;
+      const pos = geo.attributes.position;
+      if (!pos) return;
+      
+      // Get world matrix
+      const matrix = child.matrixWorld;
+      
+      // Iterate over triangles
+      for (let i = 0; i < pos.count; i += 3) {
+        const a = new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i));
+        const b = new THREE.Vector3(pos.getX(i+1), pos.getY(i+1), pos.getZ(i+1));
+        const c = new THREE.Vector3(pos.getX(i+2), pos.getY(i+2), pos.getZ(i+2));
+        
+        // Apply world transform
+        a.applyMatrix4(matrix);
+        b.applyMatrix4(matrix);
+        c.applyMatrix4(matrix);
+        
+        tri.set(a, b, c);
+        collisionTriangles.push(tri.clone());
+      }
+    }
+  });
+  
+  debug(`🔺 Built ${collisionTriangles.length} collision triangles`);
 }
 
 function buildFallbackMap() {
@@ -238,57 +277,55 @@ function buildFallbackMap() {
   }
   scene.add(group);
   mapModel = group;
-  updateCollidables();
+  buildTrimeshCollision(group);
   if (playerModel) spawnPlayerAtMapCenter();
 }
 
-function updateCollidables() {
-  collidableObjects.length = 0;
-  if (mapModel) {
-    mapModel.traverse(c => { if (c.isMesh) collidableObjects.push(c); });
-  }
-  // Backup floor
-  const backupFloor = new THREE.Mesh(
-    new THREE.BoxGeometry(30, 0.5, 30),
-    new THREE.MeshStandardMaterial({ color: 0x00ff00, transparent: true, opacity: 0 })
-  );
-  backupFloor.position.set(0, -0.25, 0);
-  backupFloor.receiveShadow = true;
-  scene.add(backupFloor);
-  collidableObjects.push(backupFloor);
-}
-
-// --- SPHERECAST COLLISION (bulletproof) ---
-const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8));
-const spherePos = new THREE.Vector3();
-
-function sphereCast(pos) {
-  spherePos.copy(pos);
-  spherePos.y += 0.3;
-  sphere.position.copy(spherePos);
-  // Check if sphere overlaps with any collidable
-  const box = new THREE.Box3().setFromObject(sphere);
-  for (const obj of collidableObjects) {
-    const objBox = new THREE.Box3().setFromObject(obj);
-    if (box.intersectsBox(objBox)) {
-      return true;
-    }
-  }
-  return false;
+// --- TRIMESH COLLISION FUNCTIONS ---
+function pointInTriangle(p, tri) {
+  const a = tri.a, b = tri.b, c = tri.c;
+  const v0 = new THREE.Vector3().copy(c).sub(a);
+  const v1 = new THREE.Vector3().copy(b).sub(a);
+  const v2 = new THREE.Vector3().copy(p).sub(a);
+  
+  const dot00 = v0.dot(v0);
+  const dot01 = v0.dot(v1);
+  const dot02 = v0.dot(v2);
+  const dot11 = v1.dot(v1);
+  const dot12 = v1.dot(v2);
+  
+  const invDenom = 1 / (dot00 * dot11 - dot01 * dot01);
+  const u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+  const v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+  
+  return (u >= 0) && (v >= 0) && (u + v < 1);
 }
 
 function getFloorHeight(pos) {
-  // Raycast down for floor
-  raycaster.set(pos, new THREE.Vector3(0, -1, 0));
-  const hits = raycaster.intersectObjects(collidableObjects);
-  for (const hit of hits) {
-    if (hit.distance > 0.01) return pos.y - hit.distance;
+  let floorY = -Infinity;
+  const down = new THREE.Vector3(0, -1, 0);
+  const ray = new THREE.Ray(pos, down);
+  
+  for (const tri of collisionTriangles) {
+    const intersection = new THREE.Vector3();
+    if (ray.intersectTriangle(tri.a, tri.b, tri.c, false, intersection)) {
+      if (intersection.y > floorY) {
+        floorY = intersection.y;
+      }
+    }
   }
-  return -Infinity;
+  return floorY;
 }
 
-// --- RAYCASTER (for floor only) ---
-const raycaster = new THREE.Raycaster();
+function canMoveTo(pos) {
+  // Check if position is inside any triangle (solid)
+  for (const tri of collisionTriangles) {
+    if (pointInTriangle(pos, tri)) {
+      return false;
+    }
+  }
+  return true;
+}
 
 // --- TOUCH JOYSTICK ---
 let joystickActive = false;
@@ -385,10 +422,10 @@ const clock = new THREE.Clock();
 function update(delta) {
   if (!playerModel) return;
 
-  // --- FACE CAMERA ---
+  // Face camera
   playerModel.rotation.y = yaw + Math.PI;
 
-  // --- MOVEMENT ---
+  // Movement
   const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
   const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
 
@@ -402,12 +439,13 @@ function update(delta) {
   const speed = playerSpeed * delta;
   const newPos = playerModel.position.clone();
 
-  // Horizontal (SphereCast)
+  // X
   const testX = newPos.clone().add(new THREE.Vector3(moveX * speed, 0, 0));
-  if (!sphereCast(testX)) newPos.x = testX.x;
+  if (canMoveTo(testX)) newPos.x = testX.x;
 
+  // Z
   const testZ = newPos.clone().add(new THREE.Vector3(0, 0, moveZ * speed));
-  if (!sphereCast(testZ)) newPos.z = testZ.z;
+  if (canMoveTo(testZ)) newPos.z = testZ.z;
 
   // Gravity
   velocity.y += gravity * delta;
@@ -431,7 +469,7 @@ function update(delta) {
 
   playerModel.position.copy(newPos);
 
-  // --- CAMERA ---
+  // Camera
   const camDist = playerHeight * 2.2;
   const camHeight = playerHeight * 1.5;
   const behind = new THREE.Vector3(
