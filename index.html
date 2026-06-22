@@ -92,8 +92,8 @@ let playerModel = null;
 let mapModel = null;
 let playerHeight = 1.6;
 const playerSpeed = 4.0;
-const gravity = -15;
-const jumpSpeed = 5.5;
+const gravity = -25;
+const jumpSpeed = 6.0;
 let velocity = new THREE.Vector3(0, 0, 0);
 let onGround = false;
 let pitch = 0, yaw = 0;
@@ -249,7 +249,7 @@ function updateCollidables() {
   }
 }
 
-// --- COLLISION (FIXED) ---
+// --- COLLISION (FIXED - NO PHASING) ---
 const raycaster = new THREE.Raycaster();
 
 function getFloorHeight(pos) {
@@ -262,9 +262,8 @@ function getFloorHeight(pos) {
 }
 
 function canMoveTo(pos) {
-  // Check if the position is inside any collidable mesh
   const testPos = pos.clone();
-  testPos.y += 0.1; // small offset to avoid self-collision
+  testPos.y += 0.1;
   raycaster.set(testPos, new THREE.Vector3(0, -1, 0));
   const hits = raycaster.intersectObjects(collidableObjects);
   for (const hit of hits) {
@@ -368,6 +367,11 @@ const clock = new THREE.Clock();
 function update(delta) {
   if (!playerModel) return;
 
+  // --- FACE CAMERA DIRECTION ---
+  const lookDir = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  playerModel.rotation.y = yaw;
+
+  // --- MOVEMENT ---
   const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
   const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
 
@@ -381,7 +385,7 @@ function update(delta) {
   const speed = playerSpeed * delta;
   const newPos = playerModel.position.clone();
 
-  // Horizontal movement with collision
+  // Horizontal
   const testX = newPos.clone().add(new THREE.Vector3(moveX * speed, 0, 0));
   if (canMoveTo(testX)) newPos.x = testX.x;
 
@@ -392,7 +396,6 @@ function update(delta) {
   velocity.y += gravity * delta;
   const testY = newPos.clone().add(new THREE.Vector3(0, velocity.y * delta, 0));
 
-  // Floor check
   const floorY = getFloorHeight(testY);
   if (floorY !== -Infinity && testY.y < floorY + 0.1) {
     newPos.y = floorY + 0.01;
@@ -411,9 +414,9 @@ function update(delta) {
 
   playerModel.position.copy(newPos);
 
-  // Camera
-  const camDist = playerHeight * 2.0;
-  const camHeight = playerHeight * 1.8;
+  // --- CAMERA (closer) ---
+  const camDist = playerHeight * 1.0;   // closer
+  const camHeight = playerHeight * 1.5;
   const behind = new THREE.Vector3(
     -Math.sin(yaw) * camDist,
     0,
