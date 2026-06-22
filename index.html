@@ -247,7 +247,7 @@ function updateCollidables() {
   if (mapModel) {
     mapModel.traverse(c => { if (c.isMesh) collidableObjects.push(c); });
   }
-  // Add a backup floor just in case
+  // Backup floor
   const backupFloor = new THREE.Mesh(
     new THREE.BoxGeometry(30, 0.5, 30),
     new THREE.MeshStandardMaterial({ color: 0x00ff00, transparent: true, opacity: 0 })
@@ -258,10 +258,27 @@ function updateCollidables() {
   collidableObjects.push(backupFloor);
 }
 
-// --- COLLISION ---
-const raycaster = new THREE.Raycaster();
+// --- SPHERECAST COLLISION (bulletproof) ---
+const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8));
+const spherePos = new THREE.Vector3();
+
+function sphereCast(pos) {
+  spherePos.copy(pos);
+  spherePos.y += 0.3;
+  sphere.position.copy(spherePos);
+  // Check if sphere overlaps with any collidable
+  const box = new THREE.Box3().setFromObject(sphere);
+  for (const obj of collidableObjects) {
+    const objBox = new THREE.Box3().setFromObject(obj);
+    if (box.intersectsBox(objBox)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function getFloorHeight(pos) {
+  // Raycast down for floor
   raycaster.set(pos, new THREE.Vector3(0, -1, 0));
   const hits = raycaster.intersectObjects(collidableObjects);
   for (const hit of hits) {
@@ -270,16 +287,8 @@ function getFloorHeight(pos) {
   return -Infinity;
 }
 
-function canMoveTo(pos) {
-  const testPos = pos.clone();
-  testPos.y += 0.1;
-  raycaster.set(testPos, new THREE.Vector3(0, -1, 0));
-  const hits = raycaster.intersectObjects(collidableObjects);
-  for (const hit of hits) {
-    if (hit.distance < 0.2) return false;
-  }
-  return true;
-}
+// --- RAYCASTER (for floor only) ---
+const raycaster = new THREE.Raycaster();
 
 // --- TOUCH JOYSTICK ---
 let joystickActive = false;
@@ -376,9 +385,8 @@ const clock = new THREE.Clock();
 function update(delta) {
   if (!playerModel) return;
 
-  // --- FACE CAMERA DIRECTION (FIXED) ---
-  const lookDir = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
-  playerModel.rotation.y = yaw + Math.PI; // FIXED: faces forward
+  // --- FACE CAMERA ---
+  playerModel.rotation.y = yaw + Math.PI;
 
   // --- MOVEMENT ---
   const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
@@ -394,14 +402,14 @@ function update(delta) {
   const speed = playerSpeed * delta;
   const newPos = playerModel.position.clone();
 
-  // Horizontal
+  // Horizontal (SphereCast)
   const testX = newPos.clone().add(new THREE.Vector3(moveX * speed, 0, 0));
-  if (canMoveTo(testX)) newPos.x = testX.x;
+  if (!sphereCast(testX)) newPos.x = testX.x;
 
   const testZ = newPos.clone().add(new THREE.Vector3(0, 0, moveZ * speed));
-  if (canMoveTo(testZ)) newPos.z = testZ.z;
+  if (!sphereCast(testZ)) newPos.z = testZ.z;
 
-  // Gravity (FIXED - no moving needed)
+  // Gravity
   velocity.y += gravity * delta;
   const testY = newPos.clone().add(new THREE.Vector3(0, velocity.y * delta, 0));
 
