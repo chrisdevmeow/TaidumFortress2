@@ -17,7 +17,6 @@
     #load-status{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);color:#d4a080;font-size:0.8rem;background:#1f1410cc;padding:4px 16px;border-radius:20px;pointer-events:none;z-index:10}
     #progress-wrap{position:absolute;bottom:110px;left:50%;transform:translateX(-50%);width:200px;height:8px;background:#1f1410;border-radius:4px;overflow:hidden;pointer-events:none;z-index:10;border:1px solid #d4602a60}
     #progress-bar{width:0%;height:100%;background:#d4602a;transition:width 0.2s}
-    .hide{display:none}
   </style>
 </head>
 <body>
@@ -48,7 +47,7 @@ const progressBar = document.getElementById('progress-bar');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1010);
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 100);
-camera.position.set(0, 1.6, 3);
+camera.position.set(0, 3, 5);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -80,7 +79,6 @@ scene.add(fill);
 let playerModel = null;
 let mapModel = null;
 let playerHeight = 1.6;
-let playerScale = 1;
 let playerLoaded = false;
 let mapLoaded = false;
 const playerSpeed = 4.0;
@@ -115,8 +113,8 @@ function loadPlayer() {
     const size = new THREE.Vector3();
     box.getSize(size);
     const targetHeight = 1.6;
-    playerScale = targetHeight / size.y;
-    playerModel.scale.set(playerScale, playerScale, playerScale);
+    const scale = targetHeight / size.y;
+    playerModel.scale.set(scale, scale, scale);
     playerModel.position.set(0, 0, 0);
     playerModel.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
     scene.add(playerModel);
@@ -125,8 +123,7 @@ function loadPlayer() {
     loadStatus.textContent = '✅ Player loaded';
     updateProgress(100);
     updateCollidables();
-    // Move camera to eye level
-    camera.position.set(0, playerHeight * 0.9, 0);
+    camera.position.set(0, playerHeight * 1.5, playerHeight * 3);
   }, (xhr) => {
     const pct = 10 + (xhr.loaded / xhr.total) * 80;
     updateProgress(pct);
@@ -148,7 +145,7 @@ function loadPlayer() {
     loadStatus.textContent = '⚠️ Using fallback capsule';
     updateProgress(100);
     updateCollidables();
-    camera.position.set(0, playerHeight * 0.9, 0);
+    camera.position.set(0, playerHeight * 1.5, playerHeight * 3);
   });
 }
 
@@ -166,6 +163,7 @@ function loadMap() {
     loadStatus.textContent = '✅ Map loaded';
     updateProgress(100);
     updateCollidables();
+    console.log('✅ Map successfully loaded and added to scene');
   }, (xhr) => {
     const pct = 10 + (xhr.loaded / xhr.total) * 80;
     updateProgress(pct);
@@ -176,6 +174,7 @@ function loadMap() {
     loadStatus.textContent = '⚠️ Using fallback map';
     updateProgress(100);
     updateCollidables();
+    console.log('⚠️ Using fallback map');
   });
 }
 
@@ -259,7 +258,6 @@ document.addEventListener('mousemove', (e) => {
   pitch -= e.movementY * sens;
   pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
   euler.set(pitch, yaw, 0, 'YXZ');
-  camera.quaternion.setFromEuler(euler);
 });
 
 // Mobile joystick
@@ -337,7 +335,6 @@ lookArea.addEventListener('touchmove', (e) => {
       pitch -= dy * sens;
       pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
       euler.set(pitch, yaw, 0, 'YXZ');
-      camera.quaternion.setFromEuler(euler);
       lastLookX = touch.clientX;
       lastLookY = touch.clientY;
     }
@@ -358,10 +355,9 @@ const clock = new THREE.Clock();
 function update(delta) {
   if (!playerModel) return;
 
-  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-  forward.y = 0; forward.normalize();
-  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-  right.y = 0; right.normalize();
+  // Movement direction based on yaw (horizontal rotation only)
+  const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
 
   let moveX = 0, moveZ = 0;
   if (isLocked) {
@@ -406,9 +402,18 @@ function update(delta) {
   }
   playerModel.position.copy(newPos);
 
-  // Camera follows at eye level
+  // Third-person camera: behind and above
+  const camDist = playerHeight * 3.5;
+  const camHeight = playerHeight * 1.8;
+  const behind = new THREE.Vector3(
+    -Math.sin(yaw) * camDist,
+    0,
+    -Math.cos(yaw) * camDist
+  );
   camera.position.copy(playerModel.position);
-  camera.position.y += playerHeight * 0.9;
+  camera.position.add(behind);
+  camera.position.y += camHeight;
+  camera.lookAt(playerModel.position.x, playerModel.position.y + playerHeight * 0.5, playerModel.position.z);
 }
 
 function animate() {
