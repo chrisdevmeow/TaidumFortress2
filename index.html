@@ -247,9 +247,18 @@ function updateCollidables() {
   if (mapModel) {
     mapModel.traverse(c => { if (c.isMesh) collidableObjects.push(c); });
   }
+  // Add a backup floor just in case
+  const backupFloor = new THREE.Mesh(
+    new THREE.BoxGeometry(30, 0.5, 30),
+    new THREE.MeshStandardMaterial({ color: 0x00ff00, transparent: true, opacity: 0 })
+  );
+  backupFloor.position.set(0, -0.25, 0);
+  backupFloor.receiveShadow = true;
+  scene.add(backupFloor);
+  collidableObjects.push(backupFloor);
 }
 
-// --- COLLISION (FIXED - NO PHASING) ---
+// --- COLLISION ---
 const raycaster = new THREE.Raycaster();
 
 function getFloorHeight(pos) {
@@ -367,9 +376,9 @@ const clock = new THREE.Clock();
 function update(delta) {
   if (!playerModel) return;
 
-  // --- FACE CAMERA DIRECTION ---
+  // --- FACE CAMERA DIRECTION (FIXED) ---
   const lookDir = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
-  playerModel.rotation.y = yaw;
+  playerModel.rotation.y = yaw + Math.PI; // FIXED: faces forward
 
   // --- MOVEMENT ---
   const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
@@ -392,7 +401,7 @@ function update(delta) {
   const testZ = newPos.clone().add(new THREE.Vector3(0, 0, moveZ * speed));
   if (canMoveTo(testZ)) newPos.z = testZ.z;
 
-  // Gravity
+  // Gravity (FIXED - no moving needed)
   velocity.y += gravity * delta;
   const testY = newPos.clone().add(new THREE.Vector3(0, velocity.y * delta, 0));
 
@@ -414,8 +423,8 @@ function update(delta) {
 
   playerModel.position.copy(newPos);
 
-  // --- CAMERA (closer) ---
-  const camDist = playerHeight * 1.0;   // closer
+  // --- CAMERA ---
+  const camDist = playerHeight * 2.2;
   const camHeight = playerHeight * 1.5;
   const behind = new THREE.Vector3(
     -Math.sin(yaw) * camDist,
