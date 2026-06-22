@@ -14,14 +14,11 @@
     #look-area{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:auto;touch-action:none}
     #info{position:absolute;top:10px;left:10px;color:#f0d5c0;font-size:0.7rem;background:#1f1410cc;padding:6px 12px;border-radius:6px;pointer-events:none;z-index:10}
     #debug{position:absolute;top:10px;right:10px;color:#ffaa77;font-size:0.7rem;background:#1f1410ee;padding:8px 12px;border-radius:6px;pointer-events:none;z-index:10;max-width:70%;border:1px solid #d4602a60;max-height:80px;overflow-y:auto;white-space:pre-wrap;text-align:right;line-height:1.4}
-    #progress-wrap{position:absolute;bottom:110px;left:50%;transform:translateX(-50%);width:200px;height:8px;background:#1f1410;border-radius:4px;overflow:hidden;pointer-events:none;z-index:10;border:1px solid #d4602a60}
-    #progress-bar{width:0%;height:100%;background:#d4602a;transition:width 0.2s}
   </style>
 </head>
 <body>
 <div id="info">🦊 TAIDUM · touch joystick · drag to look</div>
-<div id="debug">⏳ initializing...</div>
-<div id="progress-wrap"><div id="progress-bar"></div></div>
+<div id="debug">⏳ generating map...</div>
 <div id="look-area"></div>
 <div id="ui">
   <div id="joystick-area"><div id="joystick-knob"></div></div>
@@ -42,7 +39,6 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // --- DOM ---
 const debugEl = document.getElementById('debug');
-const progressBar = document.getElementById('progress-bar');
 const lookArea = document.getElementById('look-area');
 const joystickArea = document.getElementById('joystick-area');
 const joystickKnob = document.getElementById('joystick-knob');
@@ -50,9 +46,6 @@ const joystickKnob = document.getElementById('joystick-knob');
 function debug(msg) {
   debugEl.textContent = msg + '\n' + debugEl.textContent.split('\n').slice(0, 4).join('\n');
   console.log(msg);
-}
-function setProgress(pct) {
-  progressBar.style.width = Math.min(100, Math.max(0, pct)) + '%';
 }
 
 // --- THREE ---
@@ -89,7 +82,7 @@ scene.add(fill);
 
 // --- STATE ---
 let playerModel = null;
-let mapModel = null;
+let mapMeshes = [];
 let playerHeight = 1.6;
 const playerSpeed = 4.0;
 const gravity = -20;
@@ -99,33 +92,58 @@ let onGround = false;
 let pitch = 0, yaw = 0;
 const euler = new THREE.Euler(0, 0, 0, 'YXZ');
 
-// --- COLLISION DATA (from model itself) ---
-let collisionTriangles = [];
+// --- GENERATE MAP (instantly) ---
+function generateMap() {
+  debug('🗺️ Generating map...');
+  const group = new THREE.Group();
 
-// --- HARDCODED PATHS ---
-const PLAYER_URL = 'player.glb';
-const MAP_URL = 'map.glb';
-const loader = new GLTFLoader();
+  // Floor
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.8, emissive: 0x221100, emissiveIntensity: 0.2 });
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), floorMat);
+  floor.rotation.x = -Math.PI/2;
+  floor.receiveShadow = true;
+  floor.position.y = 0;
+  group.add(floor);
+  mapMeshes.push(floor);
 
-function spawnPlayerAtMapCenter() {
-  if (!playerModel || !mapModel) return;
-  const mapBox = new THREE.Box3().setFromObject(mapModel);
-  const center = new THREE.Vector3();
-  mapBox.getCenter(center);
-  const spawnY = center.y + 0.5;
-  playerModel.position.set(center.x, spawnY, center.z);
-  debug(`🦊 Spawned at (${center.x.toFixed(2)}, ${spawnY.toFixed(2)}, ${center.z.toFixed(2)})`);
-  const marker = new THREE.Mesh(
-    new THREE.BoxGeometry(0.2, 0.2, 0.2),
-    new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: 0xff0000, emissiveIntensity: 0.5 })
-  );
-  marker.position.set(center.x, spawnY, center.z);
-  scene.add(marker);
+  // Walls
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x5a3a2a, roughness: 0.7, emissive: 0x331100, emissiveIntensity: 0.2 });
+  const wallPositions = [
+    [-8, 0, 0, 1, 2, 16],
+    [8, 0, 0, 1, 2, 16],
+    [0, 0, -8, 16, 2, 1],
+    [0, 0, 8, 16, 2, 1],
+    [-4, 0, -4, 0.5, 2, 0.5],
+    [4, 0, -4, 0.5, 2, 0.5],
+    [-4, 0, 4, 0.5, 2, 0.5],
+    [4, 0, 4, 0.5, 2, 0.5],
+    [0, 0.3, 0, 2, 0.6, 2]
+  ];
+  for (const [x, y, z, w, h, d] of wallPositions) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
+    mesh.position.set(x, y + h/2, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+    mapMeshes.push(mesh);
+  }
+
+  scene.add(group);
+  debug('✅ Map generated (20x20 arena)');
+
+  // Spawn player at center
+  if (playerModel) {
+    playerModel.position.set(0, 0.5, 0);
+    debug('🦊 Player spawned at center');
+  }
 }
+
+// --- LOAD PLAYER ---
+const PLAYER_URL = 'player.glb';
+const loader = new GLTFLoader();
 
 function loadPlayer() {
   debug('⏳ Loading player...');
-  setProgress(10);
   loader.load(PLAYER_URL, (gltf) => {
     debug('✅ Player GLTF loaded');
     if (playerModel) scene.remove(playerModel);
@@ -135,14 +153,14 @@ function loadPlayer() {
     box.getSize(size);
     debug(`📏 Player size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
     if (size.length() < 0.001) {
-      debug('⚠️ Player model is empty or too small');
-      setProgress(100);
+      debug('⚠️ Player model empty — using capsule');
+      createFallbackPlayer();
       return;
     }
     const targetHeight = 1.6;
     const scale = targetHeight / size.y;
     playerModel.scale.set(scale, scale, scale);
-    playerModel.position.set(0, 0, 0);
+    playerModel.position.set(0, 0.5, 0);
     playerModel.traverse(c => {
       if (c.isMesh) {
         c.castShadow = true;
@@ -152,147 +170,52 @@ function loadPlayer() {
           c.material.emissiveIntensity = 0.2;
           c.material.needsUpdate = true;
         }
-        // Extract triangles for collision
-        const geo = c.geometry;
-        const pos = geo.attributes.position;
-        if (!pos) return;
-        const matrix = c.matrixWorld;
-        for (let i = 0; i < pos.count; i += 3) {
-          const a = new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i));
-          const b = new THREE.Vector3(pos.getX(i+1), pos.getY(i+1), pos.getZ(i+1));
-          const c2 = new THREE.Vector3(pos.getX(i+2), pos.getY(i+2), pos.getZ(i+2));
-          a.applyMatrix4(matrix);
-          b.applyMatrix4(matrix);
-          c2.applyMatrix4(matrix);
-          collisionTriangles.push({ a, b, c: c2 });
-        }
       }
     });
-    debug(`🔺 Built ${collisionTriangles.length} collision triangles from player model`);
     scene.add(playerModel);
     debug('✅ Player added to scene');
-    setProgress(100);
-    if (mapModel) spawnPlayerAtMapCenter();
     camera.position.set(0, playerHeight * 1.5, playerHeight * 3);
-  }, (xhr) => {
-    const pct = 10 + (xhr.loaded / xhr.total) * 80;
-    setProgress(pct);
-    debug(`⏳ Player ${Math.round(pct)}%`);
-  }, (err) => {
-    debug('❌ Player load error: ' + err.message);
-    setProgress(100);
+  }, undefined, () => {
+    createFallbackPlayer();
   });
 }
 
-function loadMap() {
-  debug('⏳ Loading map...');
-  setProgress(10);
-  loader.load(MAP_URL, (gltf) => {
-    debug('✅ Map GLTF loaded');
-    if (mapModel) scene.remove(mapModel);
-    mapModel = gltf.scene;
-    mapModel.scale.set(2, 2, 2);
-    mapModel.position.set(0, 0, 0);
-    mapModel.traverse(c => {
-      if (c.isMesh) {
-        c.castShadow = true;
-        c.receiveShadow = true;
-        if (c.material) {
-          c.material.emissive = new THREE.Color(0x442211);
-          c.material.emissiveIntensity = 0.2;
-          c.material.needsUpdate = true;
-        }
-      }
-    });
-    scene.add(mapModel);
-    debug('✅ Map added to scene (2x scale)');
-    setProgress(100);
-    
-    const box = new THREE.Box3().setFromObject(mapModel);
-    const center = new THREE.Vector3();
-    box.getCenter(center);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    debug(`🗺️ Map: ${size.x.toFixed(1)}x${size.y.toFixed(1)}x${size.z.toFixed(1)}  Center: (${center.x.toFixed(1)}, ${center.y.toFixed(1)}, ${center.z.toFixed(1)})`);
-    const helper = new THREE.Box3Helper(box, 0x00ff00);
-    scene.add(helper);
-    if (playerModel) spawnPlayerAtMapCenter();
-  }, (xhr) => {
-    const pct = 10 + (xhr.loaded / xhr.total) * 80;
-    setProgress(pct);
-    debug(`⏳ Map ${Math.round(pct)}%`);
-  }, (err) => {
-    debug('❌ Map load error: ' + err.message);
-    buildFallbackMap();
-    setProgress(100);
-  });
+function createFallbackPlayer() {
+  debug('⚠️ Using fallback capsule');
+  if (playerModel) scene.remove(playerModel);
+  const capsule = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.3, 0.8, 4, 8),
+    new THREE.MeshStandardMaterial({ color: 0xff44aa, emissive: 0xff2288, emissiveIntensity: 0.3 })
+  );
+  capsule.position.set(0, 0.8, 0);
+  capsule.castShadow = true;
+  capsule.receiveShadow = true;
+  scene.add(capsule);
+  playerModel = capsule;
+  camera.position.set(0, playerHeight * 1.5, playerHeight * 3);
 }
 
-function buildFallbackMap() {
-  debug('⚠️ Using fallback map');
-  if (mapModel) scene.remove(mapModel);
-  const group = new THREE.Group();
-  const floorMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.8, emissive: 0x221100, emissiveIntensity: 0.2 });
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), floorMat);
-  floor.rotation.x = -Math.PI/2;
-  floor.receiveShadow = true;
-  group.add(floor);
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x5a3a2a, roughness: 0.7, emissive: 0x331100, emissiveIntensity: 0.2 });
-  const wallPositions = [
-    [-8, 0, 0, 1, 2, 16], [8, 0, 0, 1, 2, 16],
-    [0, 0, -8, 16, 2, 1], [0, 0, 8, 16, 2, 1],
-    [-4, 0, -4, 0.5, 2, 0.5], [4, 0, -4, 0.5, 2, 0.5],
-    [-4, 0, 4, 0.5, 2, 0.5], [4, 0, 4, 0.5, 2, 0.5],
-    [0, 0.3, 0, 2, 0.6, 2]
-  ];
-  for (const [x, y, z, w, h, d] of wallPositions) {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
-    mesh.position.set(x, y + h/2, z);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
+// --- COLLISION (raycast) ---
+const raycaster = new THREE.Raycaster();
+
+function getFloorHeight(pos) {
+  raycaster.set(pos, new THREE.Vector3(0, -1, 0));
+  const hits = raycaster.intersectObjects(mapMeshes);
+  for (const hit of hits) {
+    if (hit.distance > 0.01) return pos.y - hit.distance;
   }
-  scene.add(group);
-  mapModel = group;
-  if (playerModel) spawnPlayerAtMapCenter();
-}
-
-// --- COLLISION (using player model triangles) ---
-function pointInTriangle(p, a, b, c) {
-  const v0 = new THREE.Vector3().copy(c).sub(a);
-  const v1 = new THREE.Vector3().copy(b).sub(a);
-  const v2 = new THREE.Vector3().copy(p).sub(a);
-  const dot00 = v0.dot(v0);
-  const dot01 = v0.dot(v1);
-  const dot02 = v0.dot(v2);
-  const dot11 = v1.dot(v1);
-  const dot12 = v1.dot(v2);
-  const invDenom = 1 / (dot00 * dot11 - dot01 * dot01);
-  const u = (dot11 * dot02 - dot01 * dot12) * invDenom;
-  const v = (dot00 * dot12 - dot01 * dot02) * invDenom;
-  return (u >= 0) && (v >= 0) && (u + v < 1);
+  return -Infinity;
 }
 
 function canMoveTo(pos) {
-  for (const tri of collisionTriangles) {
-    if (pointInTriangle(pos, tri.a, tri.b, tri.c)) {
-      return false;
-    }
+  const testPos = pos.clone();
+  testPos.y += 0.1;
+  raycaster.set(testPos, new THREE.Vector3(0, -1, 0));
+  const hits = raycaster.intersectObjects(mapMeshes);
+  for (const hit of hits) {
+    if (hit.distance < 0.2) return false;
   }
   return true;
-}
-
-function getFloorHeight(pos) {
-  let floorY = -Infinity;
-  const down = new THREE.Vector3(0, -1, 0);
-  const ray = new THREE.Ray(pos, down);
-  for (const tri of collisionTriangles) {
-    const intersection = new THREE.Vector3();
-    if (ray.intersectTriangle(tri.a, tri.b, tri.c, false, intersection)) {
-      if (intersection.y > floorY) floorY = intersection.y;
-    }
-  }
-  return floorY;
 }
 
 // --- TOUCH JOYSTICK ---
@@ -405,15 +328,12 @@ function update(delta) {
   const speed = playerSpeed * delta;
   const newPos = playerModel.position.clone();
 
-  // X
   const testX = newPos.clone().add(new THREE.Vector3(moveX * speed, 0, 0));
   if (canMoveTo(testX)) newPos.x = testX.x;
 
-  // Z
   const testZ = newPos.clone().add(new THREE.Vector3(0, 0, moveZ * speed));
   if (canMoveTo(testZ)) newPos.z = testZ.z;
 
-  // Gravity
   velocity.y += gravity * delta;
   const testY = newPos.clone().add(new THREE.Vector3(0, velocity.y * delta, 0));
 
@@ -456,8 +376,8 @@ function animate() {
 
 // --- START ---
 debug('🚀 Starting...');
+generateMap();
 loadPlayer();
-loadMap();
 animate();
 
 window.addEventListener('resize', () => {
