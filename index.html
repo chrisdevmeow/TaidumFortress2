@@ -116,7 +116,6 @@ function spawnPlayerAtMapCenter() {
   const spawnY = center.y + 0.5;
   playerModel.position.set(center.x, spawnY, center.z);
   debug(`🦊 Spawned at (${center.x.toFixed(2)}, ${spawnY.toFixed(2)}, ${center.z.toFixed(2)})`);
-  // red marker
   const marker = new THREE.Mesh(
     new THREE.BoxGeometry(0.2, 0.2, 0.2),
     new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: 0xff0000, emissiveIntensity: 0.5 })
@@ -132,7 +131,6 @@ function loadPlayer() {
     debug('✅ Player GLTF loaded');
     if (playerModel) scene.remove(playerModel);
     playerModel = gltf.scene;
-    // measure
     const box = new THREE.Box3().setFromObject(playerModel);
     const size = new THREE.Vector3();
     box.getSize(size);
@@ -361,30 +359,35 @@ const clock = new THREE.Clock();
 function update(delta) {
   if (!playerModel) return;
 
+  // Movement direction based on yaw
   const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
   const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
 
   let moveX = 0, moveZ = 0;
   if (joystickActive) {
-    moveX += joystickDelta.x * right.x + joystickDelta.y * forward.x;
-    moveZ += joystickDelta.x * right.z + joystickDelta.y * forward.z;
+    // FIXED: inverted X so left/right match joystick direction
+    moveX += -joystickDelta.x * right.x + joystickDelta.y * forward.x;
+    moveZ += -joystickDelta.x * right.z + joystickDelta.y * forward.z;
   }
   const len = Math.sqrt(moveX*moveX + moveZ*moveZ);
   if (len > 1) { moveX /= len; moveZ /= len; }
   const speed = playerSpeed * delta;
   const newPos = playerModel.position.clone();
 
+  // X movement
   const testX = newPos.clone().add(new THREE.Vector3(moveX * speed, 0, 0));
   if (!checkCollision(testX, new THREE.Vector3(0, -1, 0), 0.5) &&
       !checkCollision(testX, new THREE.Vector3(0, 1, 0), 0.5)) {
     newPos.x = testX.x;
   }
+  // Z movement
   const testZ = newPos.clone().add(new THREE.Vector3(0, 0, moveZ * speed));
   if (!checkCollision(testZ, new THREE.Vector3(0, -1, 0), 0.5) &&
       !checkCollision(testZ, new THREE.Vector3(0, 1, 0), 0.5)) {
     newPos.z = testZ.z;
   }
 
+  // Gravity + jump
   velocity.y += gravity * delta;
   const testY = newPos.clone().add(new THREE.Vector3(0, velocity.y * delta, 0));
   const groundCheck = new THREE.Vector3(testY.x, testY.y - 0.05, testY.z);
@@ -392,15 +395,19 @@ function update(delta) {
   if (onGround && joystickActive && joystickDelta.y < -0.7) {
     velocity.y = jumpSpeed;
   }
-  if (!checkCollision(testY, new THREE.Vector3(0, 1, 0), 0.5) &&
-      !checkCollision(testY, new THREE.Vector3(0, -1, 0), 0.5)) {
+  // Fix floating: only snap if we're inside the floor
+  const floorY = testY.y - 0.01;
+  if (checkCollision(new THREE.Vector3(testY.x, floorY, testY.z), new THREE.Vector3(0, -1, 0), 0.1)) {
+    if (velocity.y < 0) {
+      velocity.y = 0;
+      newPos.y = Math.floor(testY.y) + 0.01;
+    }
+  } else {
     newPos.y = testY.y;
-  } else if (velocity.y < 0) {
-    velocity.y = 0;
-    newPos.y = Math.ceil(newPos.y) + 0.01;
   }
   playerModel.position.copy(newPos);
 
+  // Camera
   const camDist = playerHeight * 3.5;
   const camHeight = playerHeight * 1.8;
   const behind = new THREE.Vector3(
