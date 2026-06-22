@@ -6,20 +6,22 @@
   <title>Taidum FPS</title>
   <style>
     *{margin:0;padding:0}
-    body{overflow:hidden;background:#0a0604;touch-action:none;font-family:sans-serif}
+    body{overflow:hidden;background:#0a0604;touch-action:none;font-family:monospace}
     canvas{display:block}
     #ui{position:absolute;bottom:20px;left:0;width:100%;display:flex;justify-content:space-between;padding:0 20px;pointer-events:none;box-sizing:border-box}
     #joystick-area{width:120px;height:120px;background:#ffffff22;border-radius:60px;backdrop-filter:blur(4px);border:2px solid #d4602a80;pointer-events:auto;touch-action:none;position:relative}
     #joystick-knob{width:50px;height:50px;background:#d4602a;border-radius:50%;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 0 20px #d4602a66}
     #look-area{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:auto;touch-action:none}
-    #info{position:absolute;top:10px;left:10px;color:#f0d5c0;font-size:0.8rem;background:#1f1410cc;padding:6px 14px;border-radius:8px;pointer-events:none;z-index:10}
-    #info span{color:#d4602a}
-    #spawn-log{position:absolute;top:50px;left:50%;transform:translateX(-50%);color:#ffaa77;font-size:0.8rem;background:#1f1410ee;padding:4px 16px;border-radius:20px;pointer-events:none;z-index:10;border:1px solid #d4602a80;white-space:nowrap;max-width:90%;overflow:hidden;text-overflow:ellipsis}
+    #info{position:absolute;top:10px;left:10px;color:#f0d5c0;font-size:0.7rem;background:#1f1410cc;padding:6px 12px;border-radius:6px;pointer-events:none;z-index:10}
+    #debug{position:absolute;top:10px;right:10px;color:#ffaa77;font-size:0.7rem;background:#1f1410ee;padding:8px 12px;border-radius:6px;pointer-events:none;z-index:10;max-width:70%;border:1px solid #d4602a60;max-height:80px;overflow-y:auto;white-space:pre-wrap;text-align:right;line-height:1.4}
+    #progress-wrap{position:absolute;bottom:110px;left:50%;transform:translateX(-50%);width:200px;height:8px;background:#1f1410;border-radius:4px;overflow:hidden;pointer-events:none;z-index:10;border:1px solid #d4602a60}
+    #progress-bar{width:0%;height:100%;background:#d4602a;transition:width 0.2s}
   </style>
 </head>
 <body>
-<div id="info">🦊 <span>TAIDUM</span> · touch joystick · drag to look</div>
-<div id="spawn-log">⏳ loading...</div>
+<div id="info">🦊 TAIDUM · touch joystick · drag to look</div>
+<div id="debug">⏳ initializing...</div>
+<div id="progress-wrap"><div id="progress-bar"></div></div>
 <div id="look-area"></div>
 <div id="ui">
   <div id="joystick-area"><div id="joystick-knob"></div></div>
@@ -39,10 +41,20 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // --- DOM ---
+const debugEl = document.getElementById('debug');
+const progressBar = document.getElementById('progress-bar');
 const lookArea = document.getElementById('look-area');
 const joystickArea = document.getElementById('joystick-area');
 const joystickKnob = document.getElementById('joystick-knob');
-const spawnLog = document.getElementById('spawn-log');
+
+// --- DEBUG LOGGING ---
+function debug(msg) {
+  debugEl.textContent = msg + '\n' + debugEl.textContent.split('\n').slice(0, 4).join('\n');
+  console.log(msg);
+}
+function setProgress(pct) {
+  progressBar.style.width = Math.min(100, Math.max(0, pct)) + '%';
+}
 
 // --- THREE SETUP ---
 const scene = new THREE.Scene();
@@ -103,7 +115,8 @@ function spawnPlayerAtMapCenter() {
   mapBox.getCenter(center);
   const spawnY = center.y + 0.5;
   playerModel.position.set(center.x, spawnY, center.z);
-  spawnLog.textContent = `🦊 Spawn: (${center.x.toFixed(2)}, ${spawnY.toFixed(2)}, ${center.z.toFixed(2)})`;
+  debug(`🦊 Spawned at (${center.x.toFixed(2)}, ${spawnY.toFixed(2)}, ${center.z.toFixed(2)})`);
+  // red marker
   const marker = new THREE.Mesh(
     new THREE.BoxGeometry(0.2, 0.2, 0.2),
     new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: 0xff0000, emissiveIntensity: 0.5 })
@@ -113,42 +126,58 @@ function spawnPlayerAtMapCenter() {
 }
 
 function loadPlayer() {
+  debug('⏳ Loading player...');
+  setProgress(10);
   loader.load(PLAYER_URL, (gltf) => {
+    debug('✅ Player GLTF loaded');
     if (playerModel) scene.remove(playerModel);
     playerModel = gltf.scene;
+    // measure
     const box = new THREE.Box3().setFromObject(playerModel);
     const size = new THREE.Vector3();
     box.getSize(size);
+    debug(`📏 Player size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
+    if (size.length() < 0.001) {
+      debug('⚠️ Player model is empty or too small');
+      setProgress(100);
+      return;
+    }
     const targetHeight = 1.6;
     const scale = targetHeight / size.y;
     playerModel.scale.set(scale, scale, scale);
     playerModel.position.set(0, 0, 0);
-    playerModel.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+    playerModel.traverse(c => {
+      if (c.isMesh) {
+        c.castShadow = true;
+        c.receiveShadow = true;
+        if (c.material) {
+          c.material.emissive = new THREE.Color(0xff4400);
+          c.material.emissiveIntensity = 0.2;
+          c.material.needsUpdate = true;
+        }
+      }
+    });
     scene.add(playerModel);
-    spawnLog.textContent = '✅ Player loaded';
+    debug('✅ Player added to scene');
+    setProgress(100);
     updateCollidables();
     if (mapModel) spawnPlayerAtMapCenter();
     camera.position.set(0, playerHeight * 1.5, playerHeight * 3);
-  }, undefined, () => {
-    if (playerModel) scene.remove(playerModel);
-    const capsule = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.3, 0.8, 4, 8),
-      new THREE.MeshStandardMaterial({ color: 0xd4602a, roughness: 0.3 })
-    );
-    capsule.position.set(0, 0.8, 0);
-    capsule.castShadow = true;
-    capsule.receiveShadow = true;
-    scene.add(capsule);
-    playerModel = capsule;
-    spawnLog.textContent = '⚠️ Using fallback player';
-    updateCollidables();
-    if (mapModel) spawnPlayerAtMapCenter();
-    camera.position.set(0, playerHeight * 1.5, playerHeight * 3);
+  }, (xhr) => {
+    const pct = 10 + (xhr.loaded / xhr.total) * 80;
+    setProgress(pct);
+    debug(`⏳ Player ${Math.round(pct)}%`);
+  }, (err) => {
+    debug('❌ Player load error: ' + err.message);
+    setProgress(100);
   });
 }
 
 function loadMap() {
+  debug('⏳ Loading map...');
+  setProgress(10);
   loader.load(MAP_URL, (gltf) => {
+    debug('✅ Map GLTF loaded');
     if (mapModel) scene.remove(mapModel);
     mapModel = gltf.scene;
     mapModel.scale.set(1, 1, 1);
@@ -165,26 +194,31 @@ function loadMap() {
       }
     });
     scene.add(mapModel);
-    spawnLog.textContent = '✅ Map loaded';
+    debug('✅ Map added to scene');
+    setProgress(100);
     updateCollidables();
     const box = new THREE.Box3().setFromObject(mapModel);
     const center = new THREE.Vector3();
     box.getCenter(center);
     const size = new THREE.Vector3();
     box.getSize(size);
-    spawnLog.textContent = `🗺️ Map: ${size.x.toFixed(1)}x${size.y.toFixed(1)}x${size.z.toFixed(1)}  Center: (${center.x.toFixed(1)}, ${center.y.toFixed(1)}, ${center.z.toFixed(1)})`;
+    debug(`🗺️ Map: ${size.x.toFixed(1)}x${size.y.toFixed(1)}x${size.z.toFixed(1)}  Center: (${center.x.toFixed(1)}, ${center.y.toFixed(1)}, ${center.z.toFixed(1)})`);
     const helper = new THREE.Box3Helper(box, 0x00ff00);
     scene.add(helper);
     if (playerModel) spawnPlayerAtMapCenter();
-  }, undefined, () => {
+  }, (xhr) => {
+    const pct = 10 + (xhr.loaded / xhr.total) * 80;
+    setProgress(pct);
+    debug(`⏳ Map ${Math.round(pct)}%`);
+  }, (err) => {
+    debug('❌ Map load error: ' + err.message);
     buildFallbackMap();
-    spawnLog.textContent = '⚠️ Using fallback map';
-    updateCollidables();
-    if (playerModel) spawnPlayerAtMapCenter();
+    setProgress(100);
   });
 }
 
 function buildFallbackMap() {
+  debug('⚠️ Using fallback map');
   if (mapModel) scene.remove(mapModel);
   const group = new THREE.Group();
   const floorMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.8, emissive: 0x221100, emissiveIntensity: 0.2 });
@@ -209,6 +243,8 @@ function buildFallbackMap() {
   }
   scene.add(group);
   mapModel = group;
+  updateCollidables();
+  if (playerModel) spawnPlayerAtMapCenter();
 }
 
 function updateCollidables() {
@@ -386,6 +422,7 @@ function animate() {
 }
 
 // --- START ---
+debug('🚀 Starting...');
 loadPlayer();
 loadMap();
 animate();
