@@ -48,11 +48,20 @@ function debug(msg) {
   console.log(msg);
 }
 
-// --- BGM (POOPY PANTS) ---
+// --- BGM (PLAY ON FIRST INTERACTION) ---
 const audio = new Audio('poopy_pants.mp3');
 audio.loop = true;
 audio.volume = 0.5;
-audio.play().catch(() => debug('⚠️ BGM failed (file missing?)'));
+let bgmStarted = false;
+
+function startBGM() {
+  if (bgmStarted) return;
+  audio.play().catch(() => {});
+  bgmStarted = true;
+}
+
+document.addEventListener('touchstart', startBGM, { once: true });
+document.addEventListener('click', startBGM, { once: true });
 
 // --- THREE ---
 const scene = new THREE.Scene();
@@ -103,7 +112,6 @@ function generateMap() {
   debug('🗺️ Generating map...');
   const group = new THREE.Group();
 
-  // SOLID FLOOR (thick box)
   const floorMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.8, emissive: 0x221100, emissiveIntensity: 0.2 });
   const floor = new THREE.Mesh(new THREE.BoxGeometry(20, 0.5, 20), floorMat);
   floor.position.set(0, -0.25, 0);
@@ -111,7 +119,6 @@ function generateMap() {
   group.add(floor);
   mapMeshes.push(floor);
 
-  // Walls
   const wallMat = new THREE.MeshStandardMaterial({ color: 0x5a3a2a, roughness: 0.7, emissive: 0x331100, emissiveIntensity: 0.2 });
   const wallPositions = [
     [-8, 0, 0, 1, 2, 16],
@@ -197,9 +204,8 @@ function createFallbackPlayer() {
   camera.position.set(0, playerHeight * 1.5, playerHeight * 3);
 }
 
-// --- COLLISION (advanced) ---
+// --- COLLISION ---
 const raycaster = new THREE.Raycaster();
-const tempVec = new THREE.Vector3();
 
 function getFloorHeight(pos) {
   raycaster.set(pos, new THREE.Vector3(0, -1, 0));
