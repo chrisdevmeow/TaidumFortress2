@@ -18,7 +18,7 @@
 </head>
 <body>
 <div id="info">🦊 TAIDUM · touch joystick · drag to look</div>
-<div id="debug">⏳ generating map...</div>
+<div id="debug">⏳ loading...</div>
 <div id="look-area"></div>
 <div id="ui">
   <div id="joystick-area"><div id="joystick-knob"></div></div>
@@ -47,6 +47,12 @@ function debug(msg) {
   debugEl.textContent = msg + '\n' + debugEl.textContent.split('\n').slice(0, 4).join('\n');
   console.log(msg);
 }
+
+// --- BGM (POOPY PANTS) ---
+const audio = new Audio('poopy_pants.mp3');
+audio.loop = true;
+audio.volume = 0.5;
+audio.play().catch(() => debug('⚠️ BGM failed (file missing?)'));
 
 // --- THREE ---
 const scene = new THREE.Scene();
@@ -92,17 +98,16 @@ let onGround = false;
 let pitch = 0, yaw = 0;
 const euler = new THREE.Euler(0, 0, 0, 'YXZ');
 
-// --- GENERATE MAP (instantly) ---
+// --- GENERATE MAP (solid floor) ---
 function generateMap() {
   debug('🗺️ Generating map...');
   const group = new THREE.Group();
 
-  // Floor
+  // SOLID FLOOR (thick box)
   const floorMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.8, emissive: 0x221100, emissiveIntensity: 0.2 });
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), floorMat);
-  floor.rotation.x = -Math.PI/2;
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(20, 0.5, 20), floorMat);
+  floor.position.set(0, -0.25, 0);
   floor.receiveShadow = true;
-  floor.position.y = 0;
   group.add(floor);
   mapMeshes.push(floor);
 
@@ -129,12 +134,9 @@ function generateMap() {
   }
 
   scene.add(group);
-  debug('✅ Map generated (20x20 arena)');
-
-  // Spawn player at center
+  debug('✅ Map generated (solid floor)');
   if (playerModel) {
     playerModel.position.set(0, 0.5, 0);
-    debug('🦊 Player spawned at center');
   }
 }
 
@@ -195,11 +197,13 @@ function createFallbackPlayer() {
   camera.position.set(0, playerHeight * 1.5, playerHeight * 3);
 }
 
-// --- COLLISION (raycast) ---
+// --- COLLISION (advanced) ---
 const raycaster = new THREE.Raycaster();
+const tempVec = new THREE.Vector3();
 
 function getFloorHeight(pos) {
   raycaster.set(pos, new THREE.Vector3(0, -1, 0));
+  raycaster.far = 10;
   const hits = raycaster.intersectObjects(mapMeshes);
   for (const hit of hits) {
     if (hit.distance > 0.01) return pos.y - hit.distance;
@@ -211,6 +215,7 @@ function canMoveTo(pos) {
   const testPos = pos.clone();
   testPos.y += 0.1;
   raycaster.set(testPos, new THREE.Vector3(0, -1, 0));
+  raycaster.far = 10;
   const hits = raycaster.intersectObjects(mapMeshes);
   for (const hit of hits) {
     if (hit.distance < 0.2) return false;
