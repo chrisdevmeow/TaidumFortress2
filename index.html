@@ -3,26 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Taidum FPS</title>
+  <title>Taidum Fortress 2</title>
   <style>
     *{margin:0;padding:0}
     body{overflow:hidden;background:#0a0604;touch-action:none;font-family:monospace}
     canvas{display:block}
     #ui{position:absolute;bottom:20px;left:0;width:100%;display:flex;justify-content:space-between;padding:0 20px;pointer-events:none;box-sizing:border-box}
-    #joystick-area{width:120px;height:120px;background:#ffffff22;border-radius:60px;backdrop-filter:blur(4px);border:2px solid #d4602a80;pointer-events:auto;touch-action:none;position:relative}
-    #joystick-knob{width:50px;height:50px;background:#d4602a;border-radius:50%;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 0 20px #d4602a66}
+    #joystick-area{width:130px;height:130px;background:#ffffff22;border-radius:65px;backdrop-filter:blur(6px);border:3px solid #d4602a80;pointer-events:auto;touch-action:none;position:relative}
+    #joystick-knob{width:52px;height:52px;background:#d4602a;border-radius:50%;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 0 25px #d4602a88}
     #look-area{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:auto;touch-action:none}
-    #info{position:absolute;top:10px;left:10px;color:#f0d5c0;font-size:0.7rem;background:#1f1410cc;padding:6px 12px;border-radius:6px;pointer-events:none;z-index:10}
-    #debug{position:absolute;top:10px;right:10px;color:#ffaa77;font-size:0.7rem;background:#1f1410ee;padding:8px 12px;border-radius:6px;pointer-events:none;z-index:10;max-width:70%;border:1px solid #d4602a60;max-height:80px;overflow-y:auto;white-space:pre-wrap;text-align:right;line-height:1.4}
+    #info{position:absolute;top:10px;left:10px;color:#f0d5c0;font-size:0.75rem;background:#1f1410cc;padding:8px 14px;border-radius:8px;pointer-events:none;z-index:10}
+    #debug{position:absolute;top:10px;right:10px;color:#ffaa77;font-size:0.7rem;background:#1f1410ee;padding:8px 12px;border-radius:6px;pointer-events:none;z-index:10;max-width:75%;max-height:120px;overflow-y:auto;white-space:pre-wrap;line-height:1.35}
   </style>
 </head>
 <body>
-<div id="info">🦊 TAIDUM · touch joystick · drag to look</div>
-<div id="debug">⏳ loading...</div>
+<div id="info">🦊 TAIDUM FORTRESS 2 • Joystick = Move • Drag = Look</div>
+<div id="debug">Loading...</div>
 <div id="look-area"></div>
 <div id="ui">
   <div id="joystick-area"><div id="joystick-knob"></div></div>
-  <div style="width:120px;"></div>
+  <div style="width:130px;"></div>
 </div>
 
 <script type="importmap">
@@ -33,362 +33,200 @@
   }
 }
 </script>
+
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// --- DOM ---
 const debugEl = document.getElementById('debug');
 const lookArea = document.getElementById('look-area');
 const joystickArea = document.getElementById('joystick-area');
 const joystickKnob = document.getElementById('joystick-knob');
 
 function debug(msg) {
-  debugEl.textContent = msg + '\n' + debugEl.textContent.split('\n').slice(0, 4).join('\n');
+  const time = new Date().toLocaleTimeString('en-US', {hour12:false, hour:"2-digit", minute:"2-digit", second:"2-digit"});
+  debugEl.textContent = `[${time}] ${msg}\n` + debugEl.textContent.split('\n').slice(0, 7).join('\n');
   console.log(msg);
 }
 
-// --- BGM (PLAY ON FIRST INTERACTION) ---
-const audio = new Audio('poopy_pants.mp3');
-audio.loop = true;
-audio.volume = 0.5;
-let bgmStarted = false;
-
-function startBGM() {
-  if (bgmStarted) return;
-  audio.play().catch(() => {});
-  bgmStarted = true;
-}
-
-document.addEventListener('touchstart', startBGM, { once: true });
-document.addEventListener('click', startBGM, { once: true });
-
-// --- THREE ---
+// Scene Setup
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1a1010);
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 100);
-camera.position.set(0, 3, 5);
+scene.background = new THREE.Color(0x1a0f0a);
+
+const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 200);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.prepend(renderer.domElement);
 
-// --- LIGHTS ---
-const ambient = new THREE.AmbientLight(0xffffff, 0.9);
-scene.add(ambient);
-const hemi = new THREE.HemisphereLight(0xffeedd, 0x443322, 1.2);
-scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xffaa77, 2.5);
-sun.position.set(5, 10, 7);
-sun.castShadow = true;
-sun.shadow.mapSize.width = 1024;
-sun.shadow.mapSize.height = 1024;
-sun.shadow.camera.near = 0.1;
-sun.shadow.camera.far = 30;
-sun.shadow.camera.left = -10;
-sun.shadow.camera.right = 10;
-sun.shadow.camera.top = 10;
-sun.shadow.camera.bottom = -10;
-scene.add(sun);
-const fill = new THREE.DirectionalLight(0x4477ff, 0.6);
-fill.position.set(-3, 2, 4);
-scene.add(fill);
+// Lights
+scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+scene.add(new THREE.HemisphereLight(0xffddbb, 0x332211, 1.3));
 
-// --- STATE ---
+const sun = new THREE.DirectionalLight(0xffaa66, 2.8);
+sun.position.set(10, 15, 8);
+sun.castShadow = true;
+scene.add(sun);
+
+// Game State
 let playerModel = null;
 let mapMeshes = [];
-let playerHeight = 1.6;
-const playerSpeed = 4.0;
-const gravity = -20;
-const jumpSpeed = 5.5;
-let velocity = new THREE.Vector3(0, 0, 0);
+let velocity = new THREE.Vector3();
 let onGround = false;
-let pitch = 0, yaw = 0;
-const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+let yaw = -Math.PI / 2;
+let pitch = 0;
 
-// --- GENERATE MAP (solid floor) ---
-function generateMap() {
-  debug('🗺️ Generating map...');
+const playerSpeed = 8.5;
+const gravity = -32;
+const jumpPower = 10.5;
+
+// Random Map
+function generateRandomMap() {
+  debug('🌲 Generating random fortress...');
+  mapMeshes = [];
   const group = new THREE.Group();
 
-  const floorMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.8, emissive: 0x221100, emissiveIntensity: 0.2 });
-  const floor = new THREE.Mesh(new THREE.BoxGeometry(20, 0.5, 20), floorMat);
-  floor.position.set(0, -0.25, 0);
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x2a2118, roughness: 0.95 });
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(40, 0.8, 40), floorMat);
+  floor.position.y = -0.4;
   floor.receiveShadow = true;
   group.add(floor);
   mapMeshes.push(floor);
 
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x5a3a2a, roughness: 0.7, emissive: 0x331100, emissiveIntensity: 0.2 });
-  const wallPositions = [
-    [-8, 0, 0, 1, 2, 16],
-    [8, 0, 0, 1, 2, 16],
-    [0, 0, -8, 16, 2, 1],
-    [0, 0, 8, 16, 2, 1],
-    [-4, 0, -4, 0.5, 2, 0.5],
-    [4, 0, -4, 0.5, 2, 0.5],
-    [-4, 0, 4, 0.5, 2, 0.5],
-    [4, 0, 4, 0.5, 2, 0.5],
-    [0, 0.3, 0, 2, 0.6, 2]
-  ];
-  for (const [x, y, z, w, h, d] of wallPositions) {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
-    mesh.position.set(x, y + h/2, z);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
-    mapMeshes.push(mesh);
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x664433, roughness: 0.8 });
+  for (let i = 0; i < 18; i++) {
+    const width = 1 + Math.random() * 6;
+    const depth = 1 + Math.random() * 4;
+    const height = 1.5 + Math.random() * 3.5;
+
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), wallMat);
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 4 + Math.random() * 12;
+    wall.position.x = Math.cos(angle) * dist;
+    wall.position.z = Math.sin(angle) * dist;
+    wall.position.y = height / 2;
+    wall.rotation.y = Math.random() * Math.PI;
+    wall.castShadow = true;
+    wall.receiveShadow = true;
+    group.add(wall);
+    mapMeshes.push(wall);
   }
+
+  const center = new THREE.Mesh(new THREE.BoxGeometry(6, 4, 6), new THREE.MeshStandardMaterial({ color: 0x8b5a2b }));
+  center.position.y = 2;
+  center.castShadow = true;
+  group.add(center);
+  mapMeshes.push(center);
 
   scene.add(group);
-  debug('✅ Map generated (solid floor)');
-  if (playerModel) {
-    playerModel.position.set(0, 0.5, 0);
-  }
+  debug('✅ Random map generated');
 }
 
-// --- LOAD PLAYER ---
-const PLAYER_URL = 'player.glb';
+// Player
 const loader = new GLTFLoader();
+loader.load('player.glb', (gltf) => {
+  playerModel = gltf.scene;
+  const box = new THREE.Box3().setFromObject(playerModel);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const scale = 1.9 / (size.y || 1);
+  playerModel.scale.set(scale, scale, scale);
+  playerModel.position.set(0, 1.5, 0);
+  playerModel.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; }});
+  scene.add(playerModel);
+  debug('✅ Player loaded');
+}, undefined, () => {
+  playerModel = new THREE.Mesh(new THREE.CapsuleGeometry(0.38, 1.1, 12, 20), new THREE.MeshStandardMaterial({ color: 0xff3366, emissive: 0xff1122 }));
+  playerModel.position.y = 1.4;
+  scene.add(playerModel);
+  debug('✅ Capsule fallback used');
+});
 
-function loadPlayer() {
-  debug('⏳ Loading player...');
-  loader.load(PLAYER_URL, (gltf) => {
-    debug('✅ Player GLTF loaded');
-    if (playerModel) scene.remove(playerModel);
-    playerModel = gltf.scene;
-    const box = new THREE.Box3().setFromObject(playerModel);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    debug(`📏 Player size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
-    if (size.length() < 0.001) {
-      debug('⚠️ Player model empty — using capsule');
-      createFallbackPlayer();
-      return;
-    }
-    const targetHeight = 1.6;
-    const scale = targetHeight / size.y;
-    playerModel.scale.set(scale, scale, scale);
-    playerModel.position.set(0, 0.5, 0);
-    playerModel.traverse(c => {
-      if (c.isMesh) {
-        c.castShadow = true;
-        c.receiveShadow = true;
-        if (c.material) {
-          c.material.emissive = new THREE.Color(0xff4400);
-          c.material.emissiveIntensity = 0.2;
-          c.material.needsUpdate = true;
-        }
-      }
-    });
-    scene.add(playerModel);
-    debug('✅ Player added to scene');
-    camera.position.set(0, playerHeight * 1.5, playerHeight * 3);
-  }, undefined, () => {
-    createFallbackPlayer();
-  });
-}
-
-function createFallbackPlayer() {
-  debug('⚠️ Using fallback capsule');
-  if (playerModel) scene.remove(playerModel);
-  const capsule = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.3, 0.8, 4, 8),
-    new THREE.MeshStandardMaterial({ color: 0xff44aa, emissive: 0xff2288, emissiveIntensity: 0.3 })
-  );
-  capsule.position.set(0, 0.8, 0);
-  capsule.castShadow = true;
-  capsule.receiveShadow = true;
-  scene.add(capsule);
-  playerModel = capsule;
-  camera.position.set(0, playerHeight * 1.5, playerHeight * 3);
-}
-
-// --- COLLISION ---
-const raycaster = new THREE.Raycaster();
-
-function getFloorHeight(pos) {
-  raycaster.set(pos, new THREE.Vector3(0, -1, 0));
-  raycaster.far = 10;
-  const hits = raycaster.intersectObjects(mapMeshes);
-  for (const hit of hits) {
-    if (hit.distance > 0.01) return pos.y - hit.distance;
-  }
-  return -Infinity;
-}
-
-function canMoveTo(pos) {
-  const testPos = pos.clone();
-  testPos.y += 0.1;
-  raycaster.set(testPos, new THREE.Vector3(0, -1, 0));
-  raycaster.far = 10;
-  const hits = raycaster.intersectObjects(mapMeshes);
-  for (const hit of hits) {
-    if (hit.distance < 0.2) return false;
-  }
-  return true;
-}
-
-// --- TOUCH JOYSTICK ---
+// Touch Controls (Joystick + Look)
 let joystickActive = false;
-let joystickId = null;
-const joystickCenter = { x: 0, y: 0 };
-const joystickDelta = { x: 0, y: 0 };
+let joystickDelta = {x: 0, y: 0};
 
-joystickArea.addEventListener('touchstart', (e) => {
-  e.preventDefault();
-  const touch = e.changedTouches[0];
-  const rect = joystickArea.getBoundingClientRect();
-  joystickCenter.x = rect.left + rect.width/2;
-  joystickCenter.y = rect.top + rect.height/2;
-  joystickId = touch.identifier;
-  joystickActive = true;
-  updateJoystick(touch);
-}, { passive: false });
-
-joystickArea.addEventListener('touchmove', (e) => {
-  e.preventDefault();
-  for (const touch of e.changedTouches) {
-    if (touch.identifier === joystickId) {
-      updateJoystick(touch);
-    }
-  }
-}, { passive: false });
-
-joystickArea.addEventListener('touchend', (e) => {
-  e.preventDefault();
-  for (const touch of e.changedTouches) {
-    if (touch.identifier === joystickId) {
-      joystickActive = false;
-      joystickId = null;
-      joystickDelta.x = 0;
-      joystickDelta.y = 0;
-      joystickKnob.style.transform = 'translate(-50%, -50%)';
-    }
-  }
-}, { passive: false });
+joystickArea.addEventListener('touchstart', e => { e.preventDefault(); joystickActive = true; updateJoystick(e.changedTouches[0]); });
+joystickArea.addEventListener('touchmove', e => { e.preventDefault(); if(joystickActive) updateJoystick(e.changedTouches[0]); });
+joystickArea.addEventListener('touchend', () => { joystickActive = false; joystickDelta = {x:0,y:0}; joystickKnob.style.transform = 'translate(-50%, -50%)'; });
 
 function updateJoystick(touch) {
-  const dx = touch.clientX - joystickCenter.x;
-  const dy = touch.clientY - joystickCenter.y;
-  const dist = Math.sqrt(dx*dx + dy*dy);
-  const maxDist = 50;
-  const clamped = Math.min(dist, maxDist);
+  const rect = joystickArea.getBoundingClientRect();
+  const cx = rect.left + rect.width/2;
+  const cy = rect.top + rect.height/2;
+  let dx = touch.clientX - cx;
+  let dy = touch.clientY - cy;
+  const dist = Math.min(Math.hypot(dx, dy), 55);
   const angle = Math.atan2(dy, dx);
-  const moveX = Math.cos(angle) * clamped;
-  const moveY = Math.sin(angle) * clamped;
-  joystickDelta.x = moveX / maxDist;
-  joystickDelta.y = moveY / maxDist;
-  joystickKnob.style.transform = `translate(${-50 + (moveX/maxDist)*50}%, ${-50 + (moveY/maxDist)*50}%)`;
+  dx = Math.cos(angle) * dist;
+  dy = Math.sin(angle) * dist;
+
+  joystickDelta.x = dx / 55;
+  joystickDelta.y = dy / 55;
+  joystickKnob.style.transform = `translate(${-50 + (dx/55)*48}%, ${-50 + (dy/55)*48}%)`;
 }
 
-// --- TOUCH LOOK ---
-let lookTouchId = null;
-let lastLookX = 0, lastLookY = 0;
+let lastLookX = 0;
+lookArea.addEventListener('touchstart', e => lastLookX = e.changedTouches[0].clientX);
+lookArea.addEventListener('touchmove', e => {
+  const dx = e.changedTouches[0].clientX - lastLookX;
+  yaw -= dx * 0.0065;
+  lastLookX = e.changedTouches[0].clientX;
+});
 
-lookArea.addEventListener('touchstart', (e) => {
-  if (e.changedTouches.length === 0) return;
-  const touch = e.changedTouches[0];
-  lookTouchId = touch.identifier;
-  lastLookX = touch.clientX;
-  lastLookY = touch.clientY;
-}, { passive: true });
-
-lookArea.addEventListener('touchmove', (e) => {
-  for (const touch of e.changedTouches) {
-    if (touch.identifier === lookTouchId) {
-      const dx = touch.clientX - lastLookX;
-      const dy = touch.clientY - lastLookY;
-      const sens = 0.005;
-      yaw -= dx * sens;
-      pitch -= dy * sens;
-      pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
-      euler.set(pitch, yaw, 0, 'YXZ');
-      lastLookX = touch.clientX;
-      lastLookY = touch.clientY;
-    }
-  }
-}, { passive: true });
-
-lookArea.addEventListener('touchend', (e) => {
-  for (const touch of e.changedTouches) {
-    if (touch.identifier === lookTouchId) {
-      lookTouchId = null;
-    }
-  }
-}, { passive: true });
-
-// --- GAME LOOP ---
+// Game Loop
 const clock = new THREE.Clock();
-
-function update(delta) {
-  if (!playerModel) return;
-
-  playerModel.rotation.y = yaw + Math.PI;
-
-  const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
-  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-
-  let moveX = 0, moveZ = 0;
-  if (joystickActive) {
-    moveX += -joystickDelta.x * right.x + joystickDelta.y * forward.x;
-    moveZ += -joystickDelta.x * right.z + joystickDelta.y * forward.z;
-  }
-  const len = Math.sqrt(moveX*moveX + moveZ*moveZ);
-  if (len > 1) { moveX /= len; moveZ /= len; }
-  const speed = playerSpeed * delta;
-  const newPos = playerModel.position.clone();
-
-  const testX = newPos.clone().add(new THREE.Vector3(moveX * speed, 0, 0));
-  if (canMoveTo(testX)) newPos.x = testX.x;
-
-  const testZ = newPos.clone().add(new THREE.Vector3(0, 0, moveZ * speed));
-  if (canMoveTo(testZ)) newPos.z = testZ.z;
-
-  velocity.y += gravity * delta;
-  const testY = newPos.clone().add(new THREE.Vector3(0, velocity.y * delta, 0));
-
-  const floorY = getFloorHeight(testY);
-  if (floorY !== -Infinity && testY.y < floorY + 0.1) {
-    newPos.y = floorY + 0.01;
-    velocity.y = 0;
-    onGround = true;
-  } else {
-    newPos.y = testY.y;
-    onGround = false;
-  }
-
-  if (onGround && joystickActive && joystickDelta.y < -0.7) {
-    velocity.y = jumpSpeed;
-    onGround = false;
-  }
-
-  playerModel.position.copy(newPos);
-
-  const camDist = playerHeight * 2.2;
-  const camHeight = playerHeight * 1.5;
-  const behind = new THREE.Vector3(
-    -Math.sin(yaw) * camDist,
-    0,
-    -Math.cos(yaw) * camDist
-  );
-  camera.position.copy(playerModel.position);
-  camera.position.add(behind);
-  camera.position.y += camHeight;
-  camera.lookAt(playerModel.position.x, playerModel.position.y + playerHeight * 0.5, playerModel.position.z);
-}
 
 function animate() {
   const delta = Math.min(clock.getDelta(), 0.05);
-  update(delta);
+
+  if (playerModel) {
+    const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+
+    let move = new THREE.Vector3();
+    if (joystickActive) {
+      move.x += -joystickDelta.x * right.x + joystickDelta.y * forward.x;
+      move.z += -joystickDelta.x * right.z + joystickDelta.y * forward.z;
+    }
+    move.normalize();
+
+    playerModel.position.x += move.x * playerSpeed * delta;
+    playerModel.position.z += move.z * playerSpeed * delta;
+
+    playerModel.position.x = Math.max(-18, Math.min(18, playerModel.position.x));
+    playerModel.position.z = Math.max(-18, Math.min(18, playerModel.position.z));
+
+    playerModel.rotation.y = yaw;
+
+    velocity.y += gravity * delta;
+    playerModel.position.y += velocity.y * delta;
+
+    if (playerModel.position.y < 1.4) {
+      playerModel.position.y = 1.4;
+      velocity.y = 0;
+      onGround = true;
+    }
+
+    if (onGround && joystickActive && joystickDelta.y < -0.65) {
+      velocity.y = jumpPower;
+    }
+
+    const camDist = 8;
+    camera.position.set(
+      playerModel.position.x - Math.sin(yaw) * camDist,
+      playerModel.position.y + 5.5,
+      playerModel.position.z - Math.cos(yaw) * camDist
+    );
+    camera.lookAt(playerModel.position.x, playerModel.position.y + 2, playerModel.position.z);
+  }
+
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
 
-// --- START ---
-debug('🚀 Starting...');
-generateMap();
-loadPlayer();
+generateRandomMap();
 animate();
 
 window.addEventListener('resize', () => {
@@ -396,6 +234,8 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+debug('🚀 Taidum Fortress 2 Ready');
 </script>
 </body>
 </html>
